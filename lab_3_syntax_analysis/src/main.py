@@ -1,6 +1,7 @@
 from lab_3_syntax_analysis.src.lexer.reger_lexer import tokenize
 from lab_3_syntax_analysis.src.parser.adapters import to_terminals
 from lab_3_syntax_analysis.src.parser.grammar import TERMINALS, GRAMMAR
+from lab_3_syntax_analysis.src.parser.visualizer import visualize_ast
 from lab_3_syntax_analysis.src.parser.worley_parser import EarleyParser
 
 from lab_3_syntax_analysis.src.parser.ast_builder import build_ast, eval_ast, gen_python_code
@@ -28,6 +29,10 @@ def main():
     print("Результат обчислення:", value)
     print("Згенерований код на Python:")
     print(py_code)
+
+
+    img = visualize_ast(ast)
+    print("AST image:", img or "Graphviz do not init (create .dot)")
 
 
 if __name__ == "__main__":

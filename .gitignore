@@ -164,3 +164,4 @@ cython_debug/
 .idea/
 
 /lab_3_syntax_analysis/samples/
+/lab_3_syntax_analysis/src/report/
