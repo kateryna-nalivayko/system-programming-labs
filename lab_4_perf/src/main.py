@@ -1,7 +1,7 @@
 import asyncio
 import requests
 
-from lab_4_perf.src.util import async_timed
+from util import async_timed
 
 
 @async_timed()
