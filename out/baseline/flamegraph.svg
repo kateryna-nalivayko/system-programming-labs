@@ -1,0 +1,754 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="966" onload="init(evt)" viewBox="0 0 1200 966" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs >
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	.func_g:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	var details, searchbtn, matchedtxt, svg;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	// mouse-over for info
+	function s(node) {		// show
+		info = g_to_text(node);
+		details.nodeValue = "Function: " + info;
+	}
+	function c() {			// clear
+		details.nodeValue = ' ';
+	}
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	})
+
+	// functions
+	function find_child(parent, name, attr) {
+		var children = parent.childNodes;
+		for (var i=0; i<children.length;i++) {
+			if (children[i].tagName == name)
+				return (attr != undefined) ? children[i].attributes[attr].value : children[i];
+		}
+		return;
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_"+attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_"+attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_"+attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes["width"].value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes["x"].value = parseFloat(r.attributes["x"].value) +3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2*12*0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x=txt.length-2; x>0; x--) {
+			if (t.getSubStringLength(0, x+2) <= w) {
+				t.textContent = txt.substring(0,x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = (parseFloat(e.attributes["x"].value) - x - 10) * ratio + 10;
+				if(e.tagName == "text") e.attributes["x"].value = find_child(e.parentNode, "rect", "x") + 3;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseFloat(e.attributes["width"].value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_child(c[i], x-10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = 10;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseInt(svg.width.baseVal.value) - (10*2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr["width"].value);
+		var xmin = parseFloat(attr["x"].value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr["y"].value);
+		var ratio = (svg.width.baseVal.value - 2*10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "1.0";
+
+		var el = document.getElementsByTagName("g");
+		for(var i=0;i<el.length;i++){
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a["x"].value);
+			var ew = parseFloat(a["width"].value);
+			// Is it an ancestor
+			if (0 == 0) {
+				var upstack = parseFloat(a["y"].value) > ymin;
+			} else {
+				var upstack = parseFloat(a["y"].value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.style["opacity"] = "0.5";
+					zoom_parent(e);
+					e.onclick = function(e){unzoom(); zoom(this);};
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.style["display"] = "none";
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.style["display"] = "none";
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					e.onclick = function(e){zoom(this);};
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "0.0";
+
+		var el = document.getElementsByTagName("g");
+		for(i=0;i<el.length;i++) {
+			el[i].style["display"] = "block";
+			el[i].style["opacity"] = "1";
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.getElementsByTagName("rect");
+		for (var i=0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.style["opacity"] = "0.1";
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.style["opacity"] = "0.0";
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementsByTagName("g");
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			if (e.attributes["class"].value != "func_g")
+				continue;
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (rect == null) {
+				// the rect might be wrapped in an anchor
+				// if nameattr href is being used
+				if (rect = find_child(e, "a")) {
+				    rect = find_child(r, "rect");
+				}
+			}
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes["width"].value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes["x"].value);
+				orig_save(rect, "fill");
+				rect.attributes["fill"].value =
+				    "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.style["opacity"] = "1.0";
+		searchbtn.firstChild.nodeValue = "Reset Search"
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.style["opacity"] = "1.0";
+		pct = 100 * count / maxwidth;
+		if (pct == 100)
+			pct = "100"
+		else
+			pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+	function searchover(e) {
+		searchbtn.style["opacity"] = "1.0";
+	}
+	function searchout(e) {
+		if (searching) {
+			searchbtn.style["opacity"] = "1.0";
+		} else {
+			searchbtn.style["opacity"] = "0.1";
+		}
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="966.0" fill="url(#background)"  />
+<text text-anchor="middle" x="600.00" y="24" font-size="17" font-family="Verdana" fill="rgb(0,0,0)"  >Flame Graph</text>
+<text text-anchor="" x="10.00" y="949" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="details" > </text>
+<text text-anchor="" x="10.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="unzoom" onclick="unzoom()" style="opacity:0.0;cursor:pointer" >Reset Zoom</text>
+<text text-anchor="" x="1090.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="search" onmouseover="searchover()" onmouseout="searchout()" onclick="search_prompt()" style="opacity:0.1;cursor:pointer" >Search</text>
+<text text-anchor="" x="1090.00" y="949" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="matched" > </text>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="341" width="8.9" height="15.0" fill="rgb(238,3,3)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="351.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>readinto (socket.py:719) (80 samples, 30.08%)</title><rect x="830.7" y="581" width="354.9" height="15.0" fill="rgb(221,9,22)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="591.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >readinto (socket.py:719)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="533" width="8.9" height="15.0" fill="rgb(244,172,2)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="543.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>request (urllib3/connection.py:443) (1 samples, 0.38%)</title><rect x="817.4" y="645" width="4.4" height="15.0" fill="rgb(251,156,54)" rx="2" ry="2" />
+<text text-anchor="" x="820.37" y="655.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (importlib/metadata/__init__.py:12) (2 samples, 0.75%)</title><rect x="27.7" y="133" width="8.9" height="15.0" fill="rgb(254,225,41)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>connect (urllib3/connection.py:806) (88 samples, 33.08%)</title><rect x="427.0" y="629" width="390.4" height="15.0" fill="rgb(206,11,29)" rx="2" ry="2" />
+<text text-anchor="" x="429.99" y="639.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >connect (urllib3/connection.py:806)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_make_request (urllib3/connectionpool.py:493) (3 samples, 1.13%)</title><rect x="817.4" y="661" width="13.3" height="15.0" fill="rgb(222,198,45)" rx="2" ry="2" />
+<text text-anchor="" x="820.37" y="671.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>send (requests/adapters.py:644) (260 samples, 97.74%)</title><rect x="36.6" y="693" width="1153.4" height="15.0" fill="rgb(250,145,25)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="703.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >send (requests/adapters.py:644)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="245" width="8.9" height="15.0" fill="rgb(221,151,22)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>debug (logging/__init__.py:1507) (1 samples, 0.38%)</title><rect x="1185.6" y="645" width="4.4" height="15.0" fill="rgb(243,138,11)" rx="2" ry="2" />
+<text text-anchor="" x="1188.56" y="655.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="597" width="8.9" height="15.0" fill="rgb(230,46,46)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="607.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="357" width="8.9" height="15.0" fill="rgb(209,201,40)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="367.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_create (ssl.py:1076) (76 samples, 28.57%)</title><rect x="480.2" y="549" width="337.2" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text text-anchor="" x="483.23" y="559.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_create (ssl.py:1076)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="677" width="8.9" height="15.0" fill="rgb(244,144,38)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="687.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>run_until_complete (asyncio/base_events.py:712) (260 samples, 97.74%)</title><rect x="36.6" y="853" width="1153.4" height="15.0" fill="rgb(247,195,7)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="863.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >run_until_complete (asyncio/base_events.py:712)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (requests/__init__.py:43) (2 samples, 0.75%)</title><rect x="27.7" y="805" width="8.9" height="15.0" fill="rgb(242,38,8)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="815.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="373" width="8.9" height="15.0" fill="rgb(248,170,27)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="383.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>getaddrinfo (socket.py:977) (5 samples, 1.88%)</title><rect x="36.6" y="581" width="22.2" height="15.0" fill="rgb(233,31,53)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="591.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >g..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="501" width="8.9" height="15.0" fill="rgb(207,7,27)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="511.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_ssl_wrap_socket_and_match_hostname (urllib3/connection.py:922) (4 samples, 1.50%)</title><rect x="427.0" y="613" width="17.7" height="15.0" fill="rgb(249,130,13)" rx="2" ry="2" />
+<text text-anchor="" x="429.99" y="623.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_new_conn (urllib3/connection.py:198) (88 samples, 33.08%)</title><rect x="36.6" y="613" width="390.4" height="15.0" fill="rgb(214,203,50)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="623.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_new_conn (urllib3/connection.py:198)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>create_connection (urllib3/util/connection.py:73) (83 samples, 31.20%)</title><rect x="58.8" y="597" width="368.2" height="15.0" fill="rgb(248,72,29)" rx="2" ry="2" />
+<text text-anchor="" x="61.80" y="607.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >create_connection (urllib3/util/connection.py:73)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="837" width="8.9" height="15.0" fill="rgb(239,167,26)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="847.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="645" width="8.9" height="15.0" fill="rgb(240,130,6)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="655.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="549" width="8.9" height="15.0" fill="rgb(211,71,27)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="559.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get (requests/api.py:73) (260 samples, 97.74%)</title><rect x="36.6" y="757" width="1153.4" height="15.0" fill="rgb(219,44,41)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="767.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >get (requests/api.py:73)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_ssl_wrap_socket_and_match_hostname (urllib3/connection.py:969) (84 samples, 31.58%)</title><rect x="444.7" y="613" width="372.7" height="15.0" fill="rgb(244,56,12)" rx="2" ry="2" />
+<text text-anchor="" x="447.74" y="623.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_ssl_wrap_socket_and_match_hostname (urllib3/conne..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="789" width="8.9" height="15.0" fill="rgb(242,92,53)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="799.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>getresponse (urllib3/connection.py:565) (80 samples, 30.08%)</title><rect x="830.7" y="645" width="354.9" height="15.0" fill="rgb(217,13,54)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="655.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >getresponse (urllib3/connection.py:565)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="405" width="8.9" height="15.0" fill="rgb(226,139,46)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="415.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="213" width="8.9" height="15.0" fill="rgb(226,192,22)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="309" width="8.9" height="15.0" fill="rgb(211,139,14)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="319.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_read_status (http/client.py:292) (80 samples, 30.08%)</title><rect x="830.7" y="597" width="354.9" height="15.0" fill="rgb(228,59,7)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="607.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_read_status (http/client.py:292)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>recv_into (ssl.py:1304) (80 samples, 30.08%)</title><rect x="830.7" y="565" width="354.9" height="15.0" fill="rgb(241,66,53)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="575.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >recv_into (ssl.py:1304)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="453" width="8.9" height="15.0" fill="rgb(246,14,27)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="463.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>begin (http/client.py:331) (80 samples, 30.08%)</title><rect x="830.7" y="613" width="354.9" height="15.0" fill="rgb(218,229,50)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="623.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >begin (http/client.py:331)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="565" width="8.9" height="15.0" fill="rgb(228,106,1)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="575.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="117" width="8.9" height="15.0" fill="rgb(208,37,41)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_run_once (asyncio/base_events.py:2050) (260 samples, 97.74%)</title><rect x="36.6" y="821" width="1153.4" height="15.0" fill="rgb(228,193,33)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="831.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_run_once (asyncio/base_events.py:2050)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_example_status (main.py:9) (260 samples, 97.74%)</title><rect x="36.6" y="773" width="1153.4" height="15.0" fill="rgb(231,124,16)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="783.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >get_example_status (main.py:9)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="165" width="8.9" height="15.0" fill="rgb(231,21,47)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="661" width="8.9" height="15.0" fill="rgb(208,170,34)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="671.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>getresponse (http/client.py:1430) (80 samples, 30.08%)</title><rect x="830.7" y="629" width="354.9" height="15.0" fill="rgb(207,16,50)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="639.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >getresponse (http/client.py:1430)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>create_connection (urllib3/util/connection.py:60) (5 samples, 1.88%)</title><rect x="36.6" y="597" width="22.2" height="15.0" fill="rgb(233,206,46)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="607.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >c..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (urllib3/response.py:32) (2 samples, 0.75%)</title><rect x="27.7" y="421" width="8.9" height="15.0" fill="rgb(241,215,11)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="431.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__new__ (ssl.py:438) (4 samples, 1.50%)</title><rect x="427.0" y="581" width="17.7" height="15.0" fill="rgb(222,19,37)" rx="2" ry="2" />
+<text text-anchor="" x="429.99" y="591.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="181" width="8.9" height="15.0" fill="rgb(250,180,33)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="869" width="8.9" height="15.0" fill="rgb(216,28,46)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="879.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>request (urllib3/connection.py:453) (2 samples, 0.75%)</title><rect x="821.8" y="645" width="8.9" height="15.0" fill="rgb(205,206,45)" rx="2" ry="2" />
+<text text-anchor="" x="824.80" y="655.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="773" width="8.9" height="15.0" fill="rgb(239,128,45)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="783.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_run (asyncio/events.py:89) (260 samples, 97.74%)</title><rect x="36.6" y="805" width="1153.4" height="15.0" fill="rgb(226,144,45)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="815.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_run (asyncio/events.py:89)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_make_request (urllib3/connectionpool.py:534) (80 samples, 30.08%)</title><rect x="830.7" y="661" width="354.9" height="15.0" fill="rgb(209,16,51)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="671.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_make_request (urllib3/connectionpool.py:534)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="389" width="8.9" height="15.0" fill="rgb(236,60,14)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="399.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="629" width="8.9" height="15.0" fill="rgb(235,56,19)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="639.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="293" width="8.9" height="15.0" fill="rgb(218,63,24)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="469" width="8.9" height="15.0" fill="rgb(216,223,17)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="479.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (urllib3/connectionpool.py:15) (2 samples, 0.75%)</title><rect x="27.7" y="613" width="8.9" height="15.0" fill="rgb(209,22,36)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="623.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="693" width="8.9" height="15.0" fill="rgb(251,24,54)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="703.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>ssl_wrap_socket (urllib3/util/ssl_.py:480) (76 samples, 28.57%)</title><rect x="480.2" y="597" width="337.2" height="15.0" fill="rgb(216,176,29)" rx="2" ry="2" />
+<text text-anchor="" x="483.23" y="607.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >ssl_wrap_socket (urllib3/util/ssl_.py:480)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>run (asyncio/runners.py:118) (260 samples, 97.74%)</title><rect x="36.6" y="869" width="1153.4" height="15.0" fill="rgb(249,115,27)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="879.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >run (asyncio/runners.py:118)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_validate_conn (urllib3/connectionpool.py:1093) (176 samples, 66.17%)</title><rect x="36.6" y="645" width="780.8" height="15.0" fill="rgb(228,208,0)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="655.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_validate_conn (urllib3/connectionpool.py:1093)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="741" width="8.9" height="15.0" fill="rgb(246,76,54)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="751.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_make_request (urllib3/connectionpool.py:553) (1 samples, 0.38%)</title><rect x="1185.6" y="661" width="4.4" height="15.0" fill="rgb(252,109,30)" rx="2" ry="2" />
+<text text-anchor="" x="1188.56" y="671.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>request (requests/api.py:59) (260 samples, 97.74%)</title><rect x="36.6" y="741" width="1153.4" height="15.0" fill="rgb(222,66,1)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="751.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >request (requests/api.py:59)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>urlopen (urllib3/connectionpool.py:787) (260 samples, 97.74%)</title><rect x="36.6" y="677" width="1153.4" height="15.0" fill="rgb(214,111,3)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="687.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >urlopen (urllib3/connectionpool.py:787)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>request (requests/sessions.py:589) (260 samples, 97.74%)</title><rect x="36.6" y="725" width="1153.4" height="15.0" fill="rgb(207,73,54)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="735.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >request (requests/sessions.py:589)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="437" width="8.9" height="15.0" fill="rgb(250,37,51)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="447.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>do_handshake (ssl.py:1372) (75 samples, 28.20%)</title><rect x="484.7" y="533" width="332.7" height="15.0" fill="rgb(214,87,40)" rx="2" ry="2" />
+<text text-anchor="" x="487.66" y="543.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >do_handshake (ssl.py:1372)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="485" width="8.9" height="15.0" fill="rgb(232,226,25)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="495.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>send (requests/sessions.py:703) (260 samples, 97.74%)</title><rect x="36.6" y="709" width="1153.4" height="15.0" fill="rgb(208,2,53)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="719.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >send (requests/sessions.py:703)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_make_request (urllib3/connectionpool.py:464) (176 samples, 66.17%)</title><rect x="36.6" y="661" width="780.8" height="15.0" fill="rgb(217,149,31)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="671.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_make_request (urllib3/connectionpool.py:464)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="853" width="8.9" height="15.0" fill="rgb(229,109,12)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="863.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="261" width="8.9" height="15.0" fill="rgb(242,218,45)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (main.py:20) (260 samples, 97.74%)</title><rect x="36.6" y="901" width="1153.4" height="15.0" fill="rgb(253,8,48)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="911.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >&lt;module&gt; (main.py:20)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>create_urllib3_context (urllib3/util/ssl_.py:298) (4 samples, 1.50%)</title><rect x="427.0" y="597" width="17.7" height="15.0" fill="rgb(231,155,17)" rx="2" ry="2" />
+<text text-anchor="" x="429.99" y="607.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (main.py:2) (2 samples, 0.75%)</title><rect x="27.7" y="901" width="8.9" height="15.0" fill="rgb(208,164,37)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="911.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="277" width="8.9" height="15.0" fill="rgb(251,70,17)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>read (ssl.py:1138) (80 samples, 30.08%)</title><rect x="830.7" y="549" width="354.9" height="15.0" fill="rgb(249,114,25)" rx="2" ry="2" />
+<text text-anchor="" x="833.68" y="559.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >read (ssl.py:1138)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_ssl_wrap_socket_impl (urllib3/util/ssl_.py:524) (76 samples, 28.57%)</title><rect x="480.2" y="581" width="337.2" height="15.0" fill="rgb(219,178,41)" rx="2" ry="2" />
+<text text-anchor="" x="483.23" y="591.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_ssl_wrap_socket_impl (urllib3/util/ssl_.py:5..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="757" width="8.9" height="15.0" fill="rgb(221,196,53)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="767.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="581" width="8.9" height="15.0" fill="rgb(217,148,0)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="591.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>ssl_wrap_socket (urllib3/util/ssl_.py:458) (8 samples, 3.01%)</title><rect x="444.7" y="597" width="35.5" height="15.0" fill="rgb(242,69,36)" rx="2" ry="2" />
+<text text-anchor="" x="447.74" y="607.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >ssl..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (urllib3/http2/__init__.py:3) (2 samples, 0.75%)</title><rect x="27.7" y="229" width="8.9" height="15.0" fill="rgb(215,63,6)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load (&lt;frozen importlib._bootstrap&gt;:1360) (2 samples, 0.75%)</title><rect x="27.7" y="885" width="8.9" height="15.0" fill="rgb(209,178,6)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="895.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>connect (urllib3/connection.py:753) (88 samples, 33.08%)</title><rect x="36.6" y="629" width="390.4" height="15.0" fill="rgb(234,10,24)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="639.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >connect (urllib3/connection.py:753)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;genexpr&gt; (urllib3/connection.py:453) (1 samples, 0.38%)</title><rect x="821.8" y="629" width="4.4" height="15.0" fill="rgb(207,198,4)" rx="2" ry="2" />
+<text text-anchor="" x="824.80" y="639.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>run_forever (asyncio/base_events.py:683) (260 samples, 97.74%)</title><rect x="36.6" y="837" width="1153.4" height="15.0" fill="rgb(225,216,19)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="847.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >run_forever (asyncio/base_events.py:683)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="821" width="8.9" height="15.0" fill="rgb(217,11,30)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="831.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="53" width="8.9" height="15.0" fill="rgb(229,160,14)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="63.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (urllib3/__init__.py:18) (2 samples, 0.75%)</title><rect x="27.7" y="709" width="8.9" height="15.0" fill="rgb(252,88,45)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="719.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="725" width="8.9" height="15.0" fill="rgb(210,209,40)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="735.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="101" width="8.9" height="15.0" fill="rgb(220,141,52)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>run (asyncio/runners.py:195) (260 samples, 97.74%)</title><rect x="36.6" y="885" width="1153.4" height="15.0" fill="rgb(233,31,21)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="895.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >run (asyncio/runners.py:195)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (urllib3/_request_methods.py:10) (2 samples, 0.75%)</title><rect x="27.7" y="517" width="8.9" height="15.0" fill="rgb(247,85,41)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="527.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (zipfile/__init__.py:845) (2 samples, 0.75%)</title><rect x="27.7" y="37" width="8.9" height="15.0" fill="rgb(225,203,40)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="47.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_call_with_frames_removed (&lt;frozen importlib._bootstrap&gt;:488) (2 samples, 0.75%)</title><rect x="27.7" y="149" width="8.9" height="15.0" fill="rgb(223,211,4)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>wrap_socket (ssl.py:455) (76 samples, 28.57%)</title><rect x="480.2" y="565" width="337.2" height="15.0" fill="rgb(210,74,8)" rx="2" ry="2" />
+<text text-anchor="" x="483.23" y="575.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >wrap_socket (ssl.py:455)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_find_and_load_unlocked (&lt;frozen importlib._bootstrap&gt;:1331) (2 samples, 0.75%)</title><rect x="27.7" y="197" width="8.9" height="15.0" fill="rgb(210,168,52)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>all (266 samples, 100%)</title><rect x="10.0" y="917" width="1180.0" height="15.0" fill="rgb(223,45,43)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="927.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>wrapped (util.py:13) (260 samples, 97.74%)</title><rect x="36.6" y="789" width="1153.4" height="15.0" fill="rgb(232,115,23)" rx="2" ry="2" />
+<text text-anchor="" x="39.62" y="799.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >wrapped (util.py:13)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>exec_module (&lt;frozen importlib._bootstrap_external&gt;:1026) (2 samples, 0.75%)</title><rect x="27.7" y="69" width="8.9" height="15.0" fill="rgb(244,128,28)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__iter__ (requests/structures.py:58) (1 samples, 0.38%)</title><rect x="826.2" y="629" width="4.5" height="15.0" fill="rgb(210,100,9)" rx="2" ry="2" />
+<text text-anchor="" x="829.24" y="639.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_load_unlocked (&lt;frozen importlib._bootstrap&gt;:935) (2 samples, 0.75%)</title><rect x="27.7" y="85" width="8.9" height="15.0" fill="rgb(223,26,3)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;module&gt; (urllib3/connection.py:24) (2 samples, 0.75%)</title><rect x="27.7" y="325" width="8.9" height="15.0" fill="rgb(217,194,35)" rx="2" ry="2" />
+<text text-anchor="" x="30.74" y="335.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+</svg>

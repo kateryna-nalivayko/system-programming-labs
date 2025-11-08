@@ -11,7 +11,6 @@ dependencies = [
     "graphviz (>=0.21,<0.22)",
     "aiohttp (>=3.13.2,<4.0.0)",
     "requests (>=2.32.5,<3.0.0)",
-    "py-spy (==0.3.12)",
 ]
 
 
