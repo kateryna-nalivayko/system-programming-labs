@@ -8,7 +8,7 @@ from lab_3_syntax_analysis.src.parser.ast_builder import build_ast, eval_ast, ge
 
 
 def main():
-    path = "/Users/admin/Documents/system-programming-labs/lab_3_syntax_analysis/samples/min_gramma.cs"
+    path = "D:\system-programming-labs\lab_3_syntax_analysis\samples\min_gramma.cs"
 
     with open(path, "r", encoding="utf-8") as f:
         code = f.read()

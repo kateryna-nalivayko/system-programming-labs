@@ -1,0 +1,19 @@
+Третя запуск з головного файлу
+poetry run python -m lab_3_syntax_analysis.src.main
+
+
+Скрипт побудови Флеймграфу та часу виконання програми базової версії
+lab_4_perf\scripts\run_baseline.bat
+
+
+Скрипт побудови Флеймграфу та часу виконання програми оптимізованої версії
+lab_4_perf\scripts\run_optimised.bat
+
+
+Скрипт заміру енерговитрати(просто показую завантаженість ядра у відсотках) - базової версії
+lab_4_perf\scripts\measure_energy_baseline.bat
+
+
+
+Скрипт заміру енерговитрати(просто показую завантаженість ядра у відсотках) - оптимізованої версії
+lab_4_perf\scripts\measure_energy_optimised.bat
