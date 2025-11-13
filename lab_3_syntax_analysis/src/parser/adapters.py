@@ -9,6 +9,8 @@ def to_terminals(lex_stream):
         "KRAPKA_Z_COMOYU": "SEMI",
         "DODAVANNIA": "PLUS",
         "MNOZHENNIA": "MULT",
+        "DILENNIA":  "DIV",
+        "POWER":     "POW",
         "LAPKA_L": "LPAREN",
         "LAPKA_R": "RPAREN",
     }

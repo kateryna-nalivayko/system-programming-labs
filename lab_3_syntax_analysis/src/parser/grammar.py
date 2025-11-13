@@ -1,6 +1,8 @@
 TERMINALS = [
     'ID', 'ASSIGN', 'SEMI',
-    'NUMBER', 'PLUS', 'MULT', 'LPAREN', 'RPAREN',
+    'NUMBER', 'PLUS', 'MULT', 'DIV', 'POW', 'LPAREN', 'RPAREN',
+    'IF', 'ELSE', 'WHILE',
+    'DUSHKA_L', 'DUSHKA_R'
 ]
 
 GRAMMAR = [
@@ -9,14 +11,25 @@ GRAMMAR = [
     ['stmt_list', ['stmt']],
 
     ['stmt', ['ID', 'ASSIGN', 'expr', 'SEMI']],
+    ['stmt', ['IF', 'LPAREN', 'expr', 'RPAREN', 'stmt']],
+    ['stmt', ['IF', 'LPAREN', 'expr', 'RPAREN', 'stmt', 'ELSE', 'stmt']],
+    ['stmt', ['WHILE', 'LPAREN', 'expr', 'RPAREN', 'stmt']],
+    ['stmt', ['DUSHKA_L', 'stmt_list', 'DUSHKA_R']],
 
-    ['expr', ['term']],
-    ['expr', ['expr', 'PLUS', 'term']],
 
-    ['term', ['factor']],
-    ['term', ['term', 'MULT', 'factor']],
+    ['expr', ['add']],
 
-    ['factor', ['NUMBER']],
-    ['factor', ['ID']],
-    ['factor', ['LPAREN', 'expr', 'RPAREN']],
+    ['add', ['add', 'PLUS', 'mul']],
+    ['add', ['mul']],
+
+    ['mul', ['mul', 'MULT', 'pow']],
+    ['mul', ['mul', 'DIV', 'pow']],
+    ['mul', ['pow']],
+
+    ['pow', ['atom', 'POW', 'pow']],
+    ['pow', ['atom']],
+
+    ['atom', ['NUMBER']],
+    ['atom', ['ID']],
+    ['atom', ['LPAREN', 'expr', 'RPAREN']],
 ]

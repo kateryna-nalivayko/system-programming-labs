@@ -34,6 +34,7 @@ TOKEN_SPECS = [
     ("VIDNIMANNIA",   r"-"),                   # Віднімання -
     ("MNOZHENNIA",    r"\*"),                  # Множення *
     ("DILENNIA",      r"/"),                   # Ділення /
+    ("POWER",         r"\^"),                  # '^' оператор піднесення до степеня
     ("OSTACHA",       r"%"),                   # Остача %
     ("KRAPKA",        r"\."),                  # Крапка .
     ("DVOYNA_KRAPKA", r":"),                   # Двокрапка :

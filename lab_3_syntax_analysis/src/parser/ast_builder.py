@@ -38,13 +38,27 @@ def build_ast(tokens: List[Tuple[str, str]]) -> AST:
             return node
         raise SyntaxError(f"Неочікуваний токен у factor: {t}")
 
+    def pow_expr() -> AST:
+        left = factor()
+        t, _ = peek()
+        if t == "POW":
+            eat("POW")
+            right = pow_expr()  # Правоасоціативність: рекурсія вправо
+            return AST("Pow", [left, right])
+        else:
+            return left
+
     def term() -> AST:
-        node = factor()
+        node = pow_expr()
         while True:
             t, _ = peek()
             if t == "MULT":
                 eat("MULT")
-                node = AST("Mul", [node, factor()])
+                node = AST("Mul", [node, pow_expr()])
+            # Додавання підтримки ділення
+            elif t == "DIV":
+                eat("DIV")
+                node = AST("Div", [node, pow_expr()])
             else:
                 return node
 
@@ -78,6 +92,10 @@ def eval_ast(node: AST, env: Dict[str, Any] | None = None) -> Any:
         return eval_ast(node.children[0], env) + eval_ast(node.children[1], env)
     if k == "Mul":
         return eval_ast(node.children[0], env) * eval_ast(node.children[1], env)
+    if k == "Div":
+        return eval_ast(node.children[0], env) / eval_ast(node.children[1], env)
+    if k == "Pow":
+        return eval_ast(node.children[0], env) ** eval_ast(node.children[1], env)
     if k == "Assign":
         name = node.children[0].value
         val = eval_ast(node.children[1], env)
@@ -96,6 +114,10 @@ def gen_python_code(node: AST) -> str:
         return f"({gen_python_code(node.children[0])} + {gen_python_code(node.children[1])})"
     if k == "Mul":
         return f"({gen_python_code(node.children[0])} * {gen_python_code(node.children[1])})"
+    if k == "Div":
+        return f"({gen_python_code(node.children[0])} / {gen_python_code(node.children[1])})"
+    if k == "Pow":
+        return f"({gen_python_code(node.children[0])} ** {gen_python_code(node.children[1])})"
     if k == "Assign":
         name = node.children[0].value
         rhs = gen_python_code(node.children[1])
