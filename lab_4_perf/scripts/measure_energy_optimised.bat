@@ -11,7 +11,7 @@ powershell -Command " $cpu = Get-WmiObject Win32_Processor | Select-Object -Expa
 
 rem === Run target Python program ===
 echo Running Python program...
-python lab_4_perf\src\optimised_version.py > out\optimised\main_output.log 2>&1
+python lab_4_perf\src\optimized_version.py > out\optimised\main_output.log 2>&1
 
-echo ✅ Energy log saved to out\optimised\energy_optimised_system.csv
+echo ✅ Energy log saved to out\optimised\energy_system.csv
 pause

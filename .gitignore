@@ -166,3 +166,6 @@ cython_debug/
 /lab_3_syntax_analysis/samples/
 /lab_3_syntax_analysis/src/report/
 !/lab_4_perf/scripts/out/
+
+out
+report
