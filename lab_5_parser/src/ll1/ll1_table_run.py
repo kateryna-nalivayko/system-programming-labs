@@ -1,7 +1,7 @@
 from first_follow import Grammar
 from ll1_table_parser import LL1TableParser
 
-g = Grammar.from_bnf("expr.bnf")
+g = Grammar.from_bnf("../../grammar/expr.bnf")
 parser = LL1TableParser(g)
 
 tokens = ["id", "+", "id", "*", "id"]

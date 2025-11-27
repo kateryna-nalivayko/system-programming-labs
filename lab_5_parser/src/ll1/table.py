@@ -2,7 +2,7 @@
 # Якщо граматика LL(1), то в кожній комірці таблиці буде максимум одна продукція.
 
 from collections import defaultdict
-from first_follow import EPS
+from lab_5_parser.src.ll1.first_follow import EPS
 
 
 def build_ll1_table(grammar, FIRST, FOLLOW):

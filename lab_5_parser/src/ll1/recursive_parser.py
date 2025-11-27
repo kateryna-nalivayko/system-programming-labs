@@ -1,5 +1,5 @@
-from first_follow import Grammar
-from ast_builder import Number, BinaryOp, Paren
+from lab_5_parser.src.ll1.first_follow import Grammar
+from lab_5_parser.src.ll1.ast_builder import Number, BinaryOp, Paren
 
 
 class ParseError(Exception):
@@ -7,7 +7,7 @@ class ParseError(Exception):
     pass
 
 
-class LL1Parser:
+class RecursiveParser:
     """
     Рекурсивний LL(1)-парсер для граматики:
 

@@ -3,8 +3,8 @@
 # Ця версія робить лише перевірку синтаксису — без побудови AST.
 # Робота виконується відповідно до класичного алгоритму LL(1).
 
-from first_follow import Grammar, EPS
-from table import build_ll1_table
+from lab_5_parser.src.ll1.first_follow import Grammar, EPS
+from lab_5_parser.src.ll1.table import build_ll1_table
 
 
 class ParseError(Exception):
@@ -25,7 +25,7 @@ class LL1TableParser:
         self.grammar = grammar
 
         # Обчислюємо FIRST/FOLLOW
-        from first_follow import compute_first, compute_follow
+        from lab_5_parser.src.ll1.first_follow import compute_first, compute_follow
         self.FIRST = compute_first(grammar)
         self.FOLLOW = compute_follow(grammar, self.FIRST)
 
